@@ -18,6 +18,7 @@ import time
 
 import numpy
 
+from PIL import Image
 import vispy
 from vispy import app
 from vispy import gloo
@@ -42,7 +43,7 @@ void main()
 """
 
 fragment_template = """
-#version 120
+#version 130
 
 uniform vec3      iResolution;           // viewport resolution (in pixels)
 uniform float     iGlobalTime;           // shader playback time (in seconds)
@@ -85,6 +86,20 @@ def warn(msg):
     print("Warning: " + msg, file=sys.stderr)
 
 
+class Texture( object ):
+    """Texture either loaded from a file."""
+    def __init__( self ):
+        self.xSize, self.ySize = 0, 0
+        self.rawRefence = None
+
+class FileTexture(Texture):
+    """Texture loaded from a file."""
+    def __init__( self, fileName ):
+        im = Image.open(fileName)
+        self.xSize = im.size[0]
+        self.ySize = im.size[1]
+        self.rawReference=numpy.array(list(im.getdata()),numpy.uint8).reshape((self.ySize, self.xSize, 3))
+
 def noise(resolution=64, nchannels=1):
     size = (resolution, resolution, nchannels)
     return numpy.random.randint(low=0, high=256, size=size).astype(numpy.uint8)
@@ -106,7 +121,8 @@ class RenderingCanvas(app.Canvas):
                  paused=False,
                  output=None,
                  progress_file=None,
-                 ffmpeg_pipe=None):
+                 ffmpeg_pipe=None,
+                 textures=None):
 
         app.Canvas.__init__(self,
                             keys='interactive' if interactive else None,
@@ -163,8 +179,14 @@ class RenderingCanvas(app.Canvas):
         self.program['iOffset'] = 0.0, 0.0
 
         self.activate_zoom()
-        self.set_channel_input(noise(resolution=256, nchannels=3), i=0)
-        self.set_channel_input(noise(resolution=256, nchannels=1), i=1)
+        if textures is None:
+            self.set_channel_input(noise(resolution=256, nchannels=3), i=0)
+            self.set_channel_input(noise(resolution=256, nchannels=1), i=1)
+        else:
+            _i = 0
+            for _texture in textures:
+                if os.path.exists(_texture):
+                    self.set_channel_input(FileTexture(_texture).rawReference, i=_i)
 
         self.set_shader(glsl)
 
@@ -519,6 +541,7 @@ if __name__ == '__main__':
                         action='store_true',
                         help="Render interactively. This is the default unless --output is specified.")
     parser.add_argument('--verbose', default=False, action='store_true', help='Call subprocess with a high logging level.')
+    parser.add_argument('--textures', default=None, nargs=2, help='List of texture files.')
 
     args = parser.parse_args()
 
@@ -600,7 +623,8 @@ if __name__ == '__main__':
                              paused=args.pause,
                              output=args.output,
                              progress_file=args.progress_file,
-                             ffmpeg_pipe=ffmpeg_pipe)
+                             ffmpeg_pipe=ffmpeg_pipe,
+                             textures=args.textures)
 
     if not args.output:
         observer = Observer()
